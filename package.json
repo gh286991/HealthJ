@@ -6,10 +6,10 @@
     "node": ">=18.0.0"
   },
   "scripts": {
-    "install:all": "yarn --cwd health-fe && yarn --cwd health-be",
-    "dev": "concurrently --names \"BE,FE\" --prefix-colors \"blue,green\" \"yarn --cwd health-be start:dev\" \"yarn --cwd health-fe dev\"",
-    "build:all": "yarn --cwd health-be build && yarn --cwd health-fe build",
-    "start": "concurrently --names \"BE,FE\" --prefix-colors \"blue,green\" \"yarn --cwd health-be start:prod\" \"yarn --cwd health-fe start\""
+    "install:all": "yarn --cwd HealthRecord-FE && yarn --cwd HealthRecord",
+    "dev": "concurrently --names \"BE,FE\" --prefix-colors \"blue,green\" \"yarn --cwd HealthRecord start:dev\" \"yarn --cwd HealthRecord-FE dev\"",
+    "build:all": "yarn --cwd HealthRecord build && yarn --cwd HealthRecord-FE build",
+    "start": "concurrently --names \"BE,FE\" --prefix-colors \"blue,green\" \"yarn --cwd HealthRecord start:prod\" \"yarn --cwd HealthRecord-FE start\""
   },
   "devDependencies": {
     "concurrently": "^8.2.2"

@@ -3,8 +3,8 @@
 ## 專案結構
 ```
 HealthProJ/
-├── health-be/          # 後端 (NestJS)
-├── health-fe/          # 前端 (Next.js)
+├── HealthRecord/          # 後端 (NestJS)
+├── HealthRecord-FE/          # 前端 (Next.js)
 ├── start-dev.sh        # macOS/Linux 啟動腳本
 ├── start-dev.bat       # Windows 啟動腳本
 ├── .nvmrc              # Node.js 版本指定 (18.19.0)
@@ -59,12 +59,12 @@ yarn dev
 ### 方法三：手動分別啟動
 ```bash
 # 啟動後端 (Terminal 1)
-cd health-be
+cd HealthRecord
 yarn install
 yarn start:dev
 
 # 啟動前端 (Terminal 2)
-cd health-fe
+cd HealthRecord-FE
 yarn install
 yarn dev
 ```
@@ -115,7 +115,7 @@ chmod +x start-dev.sh
 
 ### 清除 node_modules 重新安裝
 ```bash
-rm -rf health-be/node_modules health-fe/node_modules node_modules
-rm -rf health-be/yarn.lock health-fe/yarn.lock yarn.lock
+rm -rf HealthRecord/node_modules HealthRecord-FE/node_modules node_modules
+rm -rf HealthRecord/yarn.lock HealthRecord-FE/yarn.lock yarn.lock
 yarn install:all
 ``` 

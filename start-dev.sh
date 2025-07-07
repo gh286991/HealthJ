@@ -22,19 +22,19 @@ echo "📦 安裝專案依賴..."
 yarn install
 
 # 檢查並安裝各專案依賴
-if [ ! -d "health-be/node_modules" ]; then
+if [ ! -d "HealthRecord/node_modules" ]; then
     echo "📦 安裝後端依賴..."
-    cd health-be && yarn install && cd ..
+    cd HealthRecord && yarn install && cd ..
 fi
 
-if [ ! -d "health-fe/node_modules" ]; then
+if [ ! -d "HealthRecord-FE/node_modules" ]; then
     echo "📦 安裝前端依賴..."
-    cd health-fe && yarn install && cd ..
+    cd HealthRecord-FE && yarn install && cd ..
 fi
 
 # 啟動開發服務器
 echo "🚀 同時啟動前端和後端開發服務器..."
-echo "📌 後端服務器: http://localhost:3000"
+echo "📌 後端服務器: http://localhost:9000"
 echo "📌 前端服務器: http://localhost:3030"
 echo "📌 按 Ctrl+C 停止所有服務"
 
