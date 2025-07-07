@@ -14,7 +14,7 @@ HealthProJ/
 ## 必要環境
 
 ### Node.js 版本
-專案指定使用 **Node.js 18.19.0**
+專案指定使用 **Node.js 24.3.0**
 
 ### macOS/Linux 用戶
 1. 安裝 nvm (Node Version Manager)
@@ -25,12 +25,12 @@ HealthProJ/
 
 2. 使用指定 Node 版本
    ```bash
-   nvm install 18.19.0
-   nvm use 18.19.0
+   nvm install 24.3.0
+   nvm use 24.3.0
    ```
 
 ### Windows 用戶
-1. 下載並安裝 Node.js 18.19.0+ from [nodejs.org](https://nodejs.org/)
+1. 下載並安裝 Node.js 24.3.0+ from [nodejs.org](https://nodejs.org/)
 2. 確保安裝了 yarn: `npm install -g yarn`
 
 ## 啟動方式
@@ -74,8 +74,8 @@ yarn dev
 啟動成功後，您可以訪問：
 
 - **前端**: http://localhost:3030
-- **後端**: http://localhost:3000
-- **後端 API 文件**: http://localhost:3000/api (如果有設定 Swagger)
+- **後端**: http://localhost:9000
+- **後端 API 文件**: http://localhost:9000/api
 
 ## 可用指令
 
@@ -91,7 +91,7 @@ yarn start          # 啟動生產環境
 1. **首次執行**會自動安裝所有必要的依賴
 2. **停止服務**：按 `Ctrl+C` 會同時停止前端和後端
 3. **依賴更新**：如果 package.json 有變更，請重新執行 `yarn install:all`
-4. **埠號衝突**：確保 3000 和 3030 埠號沒有被其他程序占用
+4. **埠號衝突**：確保 9000 和 3030 埠號沒有被其他程序占用
 
 ## 疑難排解
 
