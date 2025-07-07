@@ -1,0 +1,6 @@
+[submodule "HealthRecord"]
+	path = HealthRecord
+	url = https://github.com/gh286991/HealthRecord.git
+[submodule "HealthRecord-FE"]
+	path = HealthRecord-FE
+	url = https://github.com/gh286991/HealthRecord-FE.git

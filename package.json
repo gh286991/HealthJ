@@ -1,0 +1,17 @@
+{
+  "name": "health-proj",
+  "version": "1.0.0",
+  "private": true,
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "install:all": "yarn --cwd health-fe && yarn --cwd health-be",
+    "dev": "concurrently --names \"BE,FE\" --prefix-colors \"blue,green\" \"yarn --cwd health-be start:dev\" \"yarn --cwd health-fe dev\"",
+    "build:all": "yarn --cwd health-be build && yarn --cwd health-fe build",
+    "start": "concurrently --names \"BE,FE\" --prefix-colors \"blue,green\" \"yarn --cwd health-be start:prod\" \"yarn --cwd health-fe start\""
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+} 
