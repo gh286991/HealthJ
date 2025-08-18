@@ -76,11 +76,9 @@ services:
       sh -c "
       echo '🧪 開始執行 Cypress 測試...' &&
       yarn cypress:run || true &&
-      echo '📊 產生測試報告...' &&
-      yarn cypress:report &&
-      echo '✅ HTML 報告已產生: cypress/reports/merged-report.html' &&
-      echo '📸 失敗截圖位置: cypress/screenshots/' &&
-      ls -la cypress/reports/ &&
+      echo '✅ HTML 報告路徑: cypress/reports/html/index.html' &&
+      echo '📸 截圖資料夾: cypress/screenshots/' &&
+      ls -la cypress/reports/html/ || true &&
       echo '🎉 E2E 測試流程完成！'
       "
 

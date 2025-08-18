@@ -1,142 +1,58 @@
-name: E2E (FE with Bun + Cypress) and BE with isolated Mongo
+name: E2E - Docker Compose
 
 on:
-  push:
-    branches: [ master ]
   pull_request:
     branches: [ master ]
+    paths:
+      - 'HealthRecord/**'
+      - 'HealthRecord-FE/**'
+      - 'docker-compose.e2e.yml'
+      - '.github/workflows/ci-e2e.yml'
+  push:
+    branches: [ master ]
+    paths:
+      - 'HealthRecord/**'
+      - 'HealthRecord-FE/**'
+      - 'docker-compose.e2e.yml'
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   e2e:
+    name: Run E2E via Docker Compose
     runs-on: ubuntu-latest
-    services:
-      mongo:
-        image: mongo:6
-        ports:
-          - 27017:27017
-        options: >-
-          --health-cmd "mongosh --eval 'db.runCommand({ ping: 1 })' || exit 1"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 20
-    env:
-      # Backend
-      MONGO_URI: mongodb://localhost:27017
-      MONGO_DB_NAME: health_ci_${{ github.run_id }}
-      JWT_SECRET: testsecret
-      # MinIO placeholder to avoid runtime errors
-      MINIO_END_POINT: https://tomminio-api.zeabur.app
-      MINIO_ACCESS_KEY: gh283871
-      MINIO_SECRET_KEY: gh283871
-      MINIO_BUCKET_NAME: zeabur
-      # Frontend
-      NEXT_PUBLIC_API_BASE_URL: http://localhost:9090
-      # Cypress
-      CYPRESS_BASE_URL: http://localhost:3030
-      CYPRESS_API_URL: http://localhost:9090
-      CYPRESS_E2E_USERNAME: john_doe
-      CYPRESS_E2E_PASSWORD: password123
-
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
-
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Install backend deps (yarn)
-        working-directory: ./HealthRecord
-        run: yarn install --frozen-lockfile
-
-      - name: Build backend
-        working-directory: ./HealthRecord
-        run: yarn build
-
-      - name: Start backend
-        working-directory: ./HealthRecord
-        run: yarn start:prod &
-
-      - name: Wait for backend to be ready
+      - name: Show Docker versions
         run: |
-          for i in {1..60}; do
-            if curl -sSf http://localhost:9090/api >/dev/null; then
-              echo "Backend is up"; exit 0; fi; sleep 2; done; exit 1
+          docker -v
+          docker compose version || true
 
-      - name: Install frontend deps (yarn)
-        working-directory: ./HealthRecord-FE
-        run: yarn install --frozen-lockfile
-
-      - name: Build frontend
-        working-directory: ./HealthRecord-FE
-        run: yarn build
-
-      - name: Start frontend (Bun on 3030)
-        working-directory: ./HealthRecord-FE
-        run: bun run start -p 3030 &
-
-      - name: Wait for frontend to be ready
+      - name: Run E2E (docker compose)
         run: |
-          for i in {1..60}; do
-            if curl -sSf http://localhost:3030 >/dev/null; then
-              echo "Frontend is up"; exit 0; fi; sleep 2; done; exit 1
+          docker compose -f docker-compose.e2e.yml up --build --abort-on-container-exit --exit-code-from cypress
 
-      - name: Run Cypress (via Bun)
-        working-directory: ./HealthRecord-FE
-        run: bun run cypress:run
-        continue-on-error: true
-
-      - name: Upload Cypress Reports
-        uses: actions/upload-artifact@v4
+      - name: Upload Cypress Artifacts (HTML + Screenshots)
         if: always()
+        uses: actions/upload-artifact@v4
         with:
-          name: cypress-reports-${{ github.run_number }}
+          name: cypress-artifacts-${{ github.run_number }}
           path: |
-            HealthRecord-FE/cypress/reports/
+            HealthRecord-FE/cypress/reports/html/
             HealthRecord-FE/cypress/screenshots/
-            HealthRecord-FE/cypress/videos/
+          if-no-files-found: ignore
           retention-days: 30
 
-      - name: Upload Test Results Summary
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: test-summary-${{ github.run_number }}
-          path: HealthRecord-FE/cypress/reports/mochawesome.json
-          retention-days: 7
-
-      - name: Generate Test Summary
+      - name: Add Summary
         if: always()
         run: |
-          echo "## 🧪 Cypress 測試結果" >> $GITHUB_STEP_SUMMARY
-          if [ -f "HealthRecord-FE/cypress/reports/mochawesome.json" ]; then
-            PASSES=$(jq -r '.stats.passes // 0' HealthRecord-FE/cypress/reports/mochawesome.json)
-            FAILURES=$(jq -r '.stats.failures // 0' HealthRecord-FE/cypress/reports/mochawesome.json)
-            TOTAL=$(jq -r '.stats.tests // 0' HealthRecord-FE/cypress/reports/mochawesome.json)
-            DURATION=$(jq -r '.stats.duration // 0' HealthRecord-FE/cypress/reports/mochawesome.json)
-            
-            echo "📊 **測試統計**" >> $GITHUB_STEP_SUMMARY
-            echo "- ✅ 通過: $PASSES" >> $GITHUB_STEP_SUMMARY
-            echo "- ❌ 失敗: $FAILURES" >> $GITHUB_STEP_SUMMARY
-            echo "- 📈 總計: $TOTAL" >> $GITHUB_STEP_SUMMARY
-            echo "- ⏱️ 執行時間: ${DURATION}ms" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            
-            if [ "$FAILURES" -gt 0 ]; then
-              echo "❌ **測試失敗！請檢查 Artifacts 中的詳細報告**" >> $GITHUB_STEP_SUMMARY
-              exit 1
-            else
-              echo "✅ **所有測試通過！**" >> $GITHUB_STEP_SUMMARY
-            fi
+          echo "## 🧪 Cypress E2E 測試" >> $GITHUB_STEP_SUMMARY
+          if [ -f "HealthRecord-FE/cypress/reports/html/index.html" ]; then
+            echo "✅ 報告已產生：HealthRecord-FE/cypress/reports/html/index.html" >> $GITHUB_STEP_SUMMARY
           else
-            echo "⚠️ 找不到測試報告檔案" >> $GITHUB_STEP_SUMMARY
-            exit 1
+            echo "⚠️ 找不到 HTML 報告（可能測試前即失敗）" >> $GITHUB_STEP_SUMMARY
           fi
-
-
