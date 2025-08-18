@@ -36,6 +36,19 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Verify repository contents
+        run: |
+          echo "Workspace: $GITHUB_WORKSPACE"
+          ls -la
+          echo "--- HealthRecord ---" && ls -la HealthRecord || true
+          echo "--- HealthRecord-FE ---" && ls -la HealthRecord-FE || true
+          test -f HealthRecord/Dockerfile && echo "✅ Found HealthRecord/Dockerfile" || (echo "❌ Missing HealthRecord/Dockerfile" && exit 1)
+          test -f HealthRecord-FE/Dockerfile && echo "✅ Found HealthRecord-FE/Dockerfile" || echo "⚠️ Missing HealthRecord-FE/Dockerfile (may be expected)"
+          test -f HealthRecord-FE/Dockerfile.cypress && echo "✅ Found HealthRecord-FE/Dockerfile.cypress" || (echo "❌ Missing HealthRecord-FE/Dockerfile.cypress" && exit 1)
 
       - name: Show Docker versions
         run: |
@@ -43,13 +56,25 @@ jobs:
           docker compose version || true
 
       - name: Run E2E (docker compose)
+        working-directory: ${{ github.workspace }}
         run: |
+          # Workaround for local 'act' runner: disable BuildKit/bake to avoid
+          # "failed to find target default" when composing builds
+          if [ "${ACT}" = "true" ]; then
+            echo "Detected act runner → disabling BuildKit/bake"
+            export DOCKER_BUILDKIT=0
+            export COMPOSE_DOCKER_CLI_BUILD=0
+            docker -v
+            docker compose version || true
+            docker buildx version || true
+          fi
+
           BUILD_FLAG="${{ github.event.inputs.compose_build }}"
           EXTRA_FLAGS="${{ github.event.inputs.compose_flags }}"
           if [ "$BUILD_FLAG" = "false" ]; then
-            docker compose -f docker-compose.e2e.yml up --abort-on-container-exit --exit-code-from cypress $EXTRA_FLAGS
+            docker compose -f "${GITHUB_WORKSPACE}/docker-compose.e2e.yml" up --abort-on-container-exit --exit-code-from cypress $EXTRA_FLAGS
           else
-            docker compose -f docker-compose.e2e.yml up --build --abort-on-container-exit --exit-code-from cypress $EXTRA_FLAGS
+            docker compose -f "${GITHUB_WORKSPACE}/docker-compose.e2e.yml" up --build --abort-on-container-exit --exit-code-from cypress $EXTRA_FLAGS
           fi
 
       - name: Upload Cypress Artifacts (HTML + Screenshots)
