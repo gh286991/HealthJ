@@ -1,0 +1,88 @@
+version: "3.9"
+services:
+  mongo:
+    image: mongo:6
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --eval 'db.runCommand({ ping: 1 })' || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    logging:
+      driver: "none"
+
+  backend:
+    build:
+      context: ./HealthRecord
+    depends_on:
+      mongo:
+        condition: service_healthy
+    environment:
+      MONGO_URI: mongodb://mongo:27017
+      MONGO_DB_NAME: health_e2e
+      JWT_SECRET: devsecret
+      MINIO_END_POINT: example.com
+      MINIO_ACCESS_KEY: test
+      MINIO_SECRET_KEY: test
+      MINIO_BUCKET_NAME: testbucket
+      PORT: 9181
+      CORS_ALLOW_ALL: "true"
+    expose:
+      - "9181"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9181/api >/dev/null || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  frontend:
+    build:
+      context: ./HealthRecord-FE
+      args:
+        NEXT_PUBLIC_API_BASE_URL: http://backend:9181
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: http://backend:9181
+    depends_on:
+      backend:
+        condition: service_healthy
+    expose:
+      - "4321"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:4321 >/dev/null 2>&1 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  cypress:
+    build:
+      context: ./HealthRecord-FE
+      dockerfile: Dockerfile.cypress
+    working_dir: /e2e/HealthRecord-FE
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+    environment:
+      CYPRESS_BASE_URL: http://frontend:4321
+      CYPRESS_API_URL: http://backend:9181
+      CYPRESS_VIDEO: "false"
+    volumes:
+      - ./HealthRecord-FE/cypress/reports:/e2e/HealthRecord-FE/cypress/reports
+      - ./HealthRecord-FE/cypress/screenshots:/e2e/HealthRecord-FE/cypress/screenshots
+    shm_size: "2gb"
+    command: >
+      sh -c "
+      echo '🧪 開始執行 Cypress 測試...' &&
+      yarn cypress:run || true &&
+      echo '📊 產生測試報告...' &&
+      yarn cypress:report &&
+      echo '✅ HTML 報告已產生: cypress/reports/merged-report.html' &&
+      echo '📸 失敗截圖位置: cypress/screenshots/' &&
+      ls -la cypress/reports/ &&
+      echo '🎉 E2E 測試流程完成！'
+      "
+
+volumes:
+  mongo-data:
