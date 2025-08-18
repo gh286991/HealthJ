@@ -1,6 +1,16 @@
 name: E2E - Docker Compose
 
 on:
+  workflow_dispatch:
+    inputs:
+      compose_build:
+        description: "是否 --build 重建映像 (true/false)"
+        required: false
+        default: "true"
+      compose_flags:
+        description: "額外 docker compose 參數 (可留空)"
+        required: false
+        default: ""
   pull_request:
     branches: [ master ]
     paths:
@@ -34,7 +44,13 @@ jobs:
 
       - name: Run E2E (docker compose)
         run: |
-          docker compose -f docker-compose.e2e.yml up --build --abort-on-container-exit --exit-code-from cypress
+          BUILD_FLAG="${{ github.event.inputs.compose_build }}"
+          EXTRA_FLAGS="${{ github.event.inputs.compose_flags }}"
+          if [ "$BUILD_FLAG" = "false" ]; then
+            docker compose -f docker-compose.e2e.yml up --abort-on-container-exit --exit-code-from cypress $EXTRA_FLAGS
+          else
+            docker compose -f docker-compose.e2e.yml up --build --abort-on-container-exit --exit-code-from cypress $EXTRA_FLAGS
+          fi
 
       - name: Upload Cypress Artifacts (HTML + Screenshots)
         if: always()
