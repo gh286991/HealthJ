@@ -150,3 +150,28 @@ jobs:
               echo "🔗 PR 報告：${{ steps.deployment.outputs.page_url }}reports/pr-${{ github.event.number }}-run-${{ github.run_number }}/index.html" >> $GITHUB_STEP_SUMMARY
             fi
           fi
+
+      - name: Enforce failure if any test failed (parse JSON reports)
+        if: always()
+        run: |
+          sudo apt-get update -y >/dev/null 2>&1 || true
+          sudo apt-get install -y jq >/dev/null 2>&1 || true
+          REPORT_ROOT="HealthRecord-FE/cypress/reports"
+          if [ -d "$REPORT_ROOT" ]; then
+            JSON_FILES=$(find "$REPORT_ROOT" -type f -name "*.json" || true)
+            TOTAL_FAILS=0
+            for f in $JSON_FILES; do
+              FAILS=$(jq -r '.stats.failures // 0' "$f" 2>/dev/null || echo 0)
+              TOTAL_FAILS=$((TOTAL_FAILS + FAILS))
+            done
+            echo "Aggregated failures: $TOTAL_FAILS"
+            if [ "$TOTAL_FAILS" -gt 0 ]; then
+              echo "❌ 有測試失敗，將此工作標記為失敗" >&2
+              exit 1
+            else
+              echo "✅ 所有測試通過"
+            fi
+          else
+            echo "⚠️ 找不到報告資料夾，若上方步驟顯示測試已執行且成功，視為通過；否則標紅更保守"
+            # 若想更保守可改成 exit 1
+          fi
