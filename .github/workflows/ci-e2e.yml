@@ -38,7 +38,9 @@ jobs:
   e2e:
     name: Run E2E via Docker Compose
     runs-on: ubuntu-latest
-    environment: github-pages
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -120,6 +122,10 @@ jobs:
           else
             echo "No HTML report directory to publish"
           fi
+
+      - name: Configure GitHub Pages
+        if: always()
+        uses: actions/configure-pages@v5
 
       - name: Upload Pages artifact
         if: always()
