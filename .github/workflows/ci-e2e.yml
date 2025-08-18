@@ -29,10 +29,16 @@ concurrency:
   group: e2e-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
 jobs:
   e2e:
     name: Run E2E via Docker Compose
     runs-on: ubuntu-latest
+    environment: github-pages
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -96,4 +102,42 @@ jobs:
             echo "✅ 報告已產生：HealthRecord-FE/cypress/reports/html/index.html" >> $GITHUB_STEP_SUMMARY
           else
             echo "⚠️ 找不到 HTML 報告（可能測試前即失敗）" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Prepare Pages content (copy report)
+        if: always()
+        run: |
+          mkdir -p site
+          if [ -d "HealthRecord-FE/cypress/reports/html" ]; then
+            if [ "${{ github.event_name }}" = "pull_request" ]; then
+              DEST="site/reports/pr-${{ github.event.number }}-run-${{ github.run_number }}"
+            else
+              DEST="site/reports/run-${{ github.run_number }}"
+            fi
+            mkdir -p "$DEST"
+            cp -r HealthRecord-FE/cypress/reports/html/* "$DEST/"
+            echo "Report copied to $DEST"
+          else
+            echo "No HTML report directory to publish"
+          fi
+
+      - name: Upload Pages artifact
+        if: always()
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Deploy to GitHub Pages
+        if: always()
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Append Pages URL to summary
+        if: always()
+        run: |
+          if [ -n "${{ steps.deployment.outputs.page_url }}" ]; then
+            echo "🔗 線上報告：${{ steps.deployment.outputs.page_url }}reports/run-${{ github.run_number }}/index.html" >> $GITHUB_STEP_SUMMARY
+            if [ "${{ github.event_name }}" = "pull_request" ]; then
+              echo "🔗 PR 報告：${{ steps.deployment.outputs.page_url }}reports/pr-${{ github.event.number }}-run-${{ github.run_number }}/index.html" >> $GITHUB_STEP_SUMMARY
+            fi
           fi
