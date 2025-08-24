@@ -1,0 +1,485 @@
+name: 🚀 Deploy to Zeabur
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: '部署環境'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - stg
+          - prod
+      backend_branch:
+        description: '後端專案分支 (HealthRecord)'
+        required: true
+        default: 'develop'
+        type: string
+      frontend_branch:
+        description: '前端專案分支 (HealthRecord-FE)'
+        required: true
+        default: 'develop'
+        type: string
+      build_backend:
+        description: '是否建置後端'
+        required: false
+        default: true
+        type: boolean
+      build_frontend:
+        description: '是否建置前端'
+        required: false
+        default: true
+        type: boolean
+      force_deploy:
+        description: '強制部署（跳過測試）'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  ZEABUR_TOKEN: ${{ secrets.ZEABUR_TOKEN }}
+  ZEABUR_PROJECT_ID: ${{ secrets.ZEABUR_PROJECT_ID }}
+  NODE_ENV: ${{ github.event.inputs.environment }}
+
+concurrency:
+  group: deploy-${{ github.event.inputs.environment }}-${{ github.event.inputs.backend_branch }}-${{ github.event.inputs.frontend_branch }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  validate-inputs:
+    name: 🔍 驗證輸入參數
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.validate.outputs.environment }}
+      backend-branch: ${{ steps.validate.outputs.backend_branch }}
+      frontend-branch: ${{ steps.validate.outputs.frontend_branch }}
+      should-build-backend: ${{ steps.validate.outputs.should_build_backend }}
+      should-build-frontend: ${{ steps.validate.outputs.should_build_frontend }}
+      force-deploy: ${{ steps.validate.outputs.force_deploy }}
+    steps:
+      - name: 檢出程式碼以偵測分支
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: 偵測可用分支
+        id: detect-branches
+        run: |
+          echo "🔍 偵測可用分支..."
+          
+          # 偵測後端專案分支
+          echo "🏗️  後端專案 (HealthRecord) 可用分支："
+          cd HealthRecord
+          git branch -r | grep -v HEAD | sed 's/origin\///' | sort -u
+          BACKEND_BRANCHES=$(git branch -r | grep -v HEAD | sed 's/origin\///' | sort -u | tr '\n' ',' | sed 's/,$//')
+          echo "backend_branches=$BACKEND_BRANCHES" >> $GITHUB_OUTPUT
+          cd ..
+          
+          echo ""
+          echo "🎨 前端專案 (HealthRecord-FE) 可用分支："
+          cd HealthRecord-FE
+          git branch -r | grep -v HEAD | sed 's/origin\///' | sort -u
+          FRONTEND_BRANCHES=$(git branch -r | grep -v HEAD | sed 's/origin\///' | sort -u | tr '\n' ',' | sed 's/,$//')
+          echo "frontend_branches=$FRONTEND_BRANCHES" >> $GITHUB_OUTPUT
+          cd ..
+          
+          echo ""
+          echo "📋 分支偵測完成"
+
+      - name: 驗證環境和分支組合
+        id: validate
+        run: |
+          ENV="${{ github.event.inputs.environment }}"
+          BACKEND_BRANCH="${{ github.event.inputs.backend_branch }}"
+          FRONTEND_BRANCH="${{ github.event.inputs.frontend_branch }}"
+          
+          echo "🔍 驗證部署配置..."
+          echo "📍 環境: $ENV"
+          echo "🏗️  後端分支: $BACKEND_BRANCH"
+          echo "🎨 前端分支: $FRONTEND_BRANCH"
+          
+          # 驗證環境和分支的合理性（可選的嚴格驗證）
+          case "$ENV" in
+            "dev")
+              echo "ℹ️  開發環境 - 允許使用任何分支進行測試"
+              ;;
+            "stg")
+              echo "ℹ️  測試環境 - 建議使用 staging 分支，但允許其他分支"
+              ;;
+            "prod")
+              # 生產環境建議使用穩定分支
+              if [[ "$BACKEND_BRANCH" != "main" && "$BACKEND_BRANCH" != "staging" ]]; then
+                echo "⚠️  警告：生產環境建議使用 main 或 staging 分支"
+              fi
+              if [[ "$FRONTEND_BRANCH" != "main" && "$FRONTEND_BRANCH" != "staging" ]]; then
+                echo "⚠️  警告：生產環境建議使用 main 或 staging 分支"
+              fi
+              ;;
+          esac
+          
+          echo "✅ 環境和分支組合驗證通過"
+          echo "environment=$ENV" >> $GITHUB_OUTPUT
+          echo "backend_branch=$BACKEND_BRANCH" >> $GITHUB_OUTPUT
+          echo "frontend_branch=$FRONTEND_BRANCH" >> $GITHUB_OUTPUT
+          echo "should_build_backend=${{ github.event.inputs.build_backend }}" >> $GITHUB_OUTPUT
+          echo "should_build_frontend=${{ github.event.inputs.build_frontend }}" >> $GITHUB_OUTPUT
+          echo "force_deploy=${{ github.event.inputs.force_deploy }}" >> $GITHUB_OUTPUT
+
+  checkout-code:
+    name: 📥 檢出程式碼
+    runs-on: ubuntu-latest
+    needs: validate-inputs
+    steps:
+      - name: 檢出程式碼
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate-inputs.outputs.backend-branch }}
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: 顯示分支資訊
+        run: |
+          echo "🔍 當前分支: $(git branch --show-current)"
+          echo "🔍 後端分支: ${{ needs.validate-inputs.outputs.backend-branch }}"
+          echo "🔍 前端分支: ${{ needs.validate-inputs.outputs.frontend-branch }}"
+          echo "🔍 最新提交: $(git log -1 --oneline)"
+          echo "🔍 提交者: $(git log -1 --pretty=format:'%an <%ae>')"
+
+  run-tests:
+    name: 🧪 執行測試
+    runs-on: ubuntu-latest
+    needs: [validate-inputs, checkout-code]
+    if: ${{ !needs.validate-inputs.outputs.force-deploy }}
+    steps:
+      - name: 檢出程式碼（含子模組）
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: 切換子模組分支（後端/前端）
+        run: |
+          echo "切換後端子模組到分支: ${{ needs.validate-inputs.outputs.backend-branch }}"
+          git -C HealthRecord fetch origin ${{ needs.validate-inputs.outputs.backend-branch }}
+          git -C HealthRecord checkout ${{ needs.validate-inputs.outputs.backend-branch }} || git -C HealthRecord checkout -b ${{ needs.validate-inputs.outputs.backend-branch }} origin/${{ needs.validate-inputs.outputs.backend-branch }}
+          git -C HealthRecord pull origin ${{ needs.validate-inputs.outputs.backend-branch }}
+
+          echo "切換前端子模組到分支: ${{ needs.validate-inputs.outputs.frontend-branch }}"
+          git -C HealthRecord-FE fetch origin ${{ needs.validate-inputs.outputs.frontend-branch }}
+          git -C HealthRecord-FE checkout ${{ needs.validate-inputs.outputs.frontend-branch }} || git -C HealthRecord-FE checkout -b ${{ needs.validate-inputs.outputs.frontend-branch }} origin/${{ needs.validate-inputs.outputs.frontend-branch }}
+          git -C HealthRecord-FE pull origin ${{ needs.validate-inputs.outputs.frontend-branch }}
+
+      - name: 設定 Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 執行後端測試
+        working-directory: HealthRecord
+        run: |
+          echo "🧪 執行後端測試..."
+          docker build \
+            --target builder \
+            --tag healthrecord-backend-test:${{ needs.validate-inputs.outputs.backend-branch }} \
+            .
+          docker run --rm healthrecord-backend-test:${{ needs.validate-inputs.outputs.backend-branch }} yarn test
+
+      - name: 執行前端測試
+        working-directory: HealthRecord-FE
+        run: |
+          echo "🧪 執行前端測試..."
+          docker build \
+            --target builder \
+            --tag healthrecord-frontend-test:${{ needs.validate-inputs.outputs.frontend-branch }} \
+            .
+          docker run --rm healthrecord-frontend-test:${{ needs.validate-inputs.outputs.frontend-branch }} yarn test
+
+      - name: 執行 E2E 測試
+        working-directory: HealthRecord-FE
+        run: |
+          echo "🧪 執行 E2E 測試..."
+          docker run --rm healthrecord-frontend-test:${{ needs.validate-inputs.outputs.frontend-branch }} yarn cypress:run
+
+  build-backend:
+    name: 🏗️ 建置後端
+    runs-on: ubuntu-latest
+    needs: [validate-inputs, checkout-code]
+    if: ${{ needs.validate-inputs.outputs.should-build-backend }}
+    steps:
+      - name: 檢出程式碼（含子模組）
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: 切換後端子模組分支
+        run: |
+          echo "切換後端子模組到分支: ${{ needs.validate-inputs.outputs.backend-branch }}"
+          git -C HealthRecord fetch origin ${{ needs.validate-inputs.outputs.backend-branch }}
+          git -C HealthRecord checkout ${{ needs.validate-inputs.outputs.backend-branch }} || git -C HealthRecord checkout -b ${{ needs.validate-inputs.outputs.backend-branch }} origin/${{ needs.validate-inputs.outputs.backend-branch }}
+          git -C HealthRecord pull origin ${{ needs.validate-inputs.outputs.backend-branch }}
+
+      - name: 設定 Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 建置後端 Docker 映像
+        working-directory: HealthRecord
+        run: |
+          echo "🏗️ 建置後端 Docker 映像..."
+          docker build \
+            --tag healthrecord-backend:${{ needs.validate-inputs.outputs.environment }}-${{ needs.validate-inputs.outputs.backend-branch }} \
+            --build-arg NODE_ENV=${{ needs.validate-inputs.outputs.environment }} \
+            .
+
+      - name: 匯出後端建置成品（從映像複製 dist）
+        working-directory: HealthRecord
+        run: |
+          echo "📦 匯出後端 dist 成品..."
+          mkdir -p dist
+          CID=$(docker create healthrecord-backend:${{ needs.validate-inputs.outputs.environment }}-${{ needs.validate-inputs.outputs.backend-branch }})
+          docker cp "$CID":/app/dist ./dist || (echo "❌ 找不到 /app/dist，請確認 Dockerfile 是否有輸出 dist" && exit 1)
+          docker rm "$CID"
+
+      - name: 上傳後端建置成品
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-build-${{ needs.validate-inputs.outputs.environment }}-${{ needs.validate-inputs.outputs.backend-branch }}
+          path: HealthRecord/dist/
+          retention-days: 1
+
+  build-frontend:
+    name: 🏗️ 建置前端
+    runs-on: ubuntu-latest
+    needs: [validate-inputs, checkout-code]
+    if: ${{ needs.validate-inputs.outputs.should-build-frontend }}
+    steps:
+      - name: 檢出程式碼（含子模組）
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: 切換前端子模組分支
+        run: |
+          echo "切換前端子模組到分支: ${{ needs.validate-inputs.outputs.frontend-branch }}"
+          git -C HealthRecord-FE fetch origin ${{ needs.validate-inputs.outputs.frontend-branch }}
+          git -C HealthRecord-FE checkout ${{ needs.validate-inputs.outputs.frontend-branch }} || git -C HealthRecord-FE checkout -b ${{ needs.validate-inputs.outputs.frontend-branch }} origin/${{ needs.validate-inputs.outputs.frontend-branch }}
+          git -C HealthRecord-FE pull origin ${{ needs.validate-inputs.outputs.frontend-branch }}
+
+      - name: 設定 Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 建置前端 Docker 映像
+        working-directory: HealthRecord-FE
+        run: |
+          echo "🎨 建置前端 Docker 映像..."
+          docker build \
+            --tag healthrecord-frontend:${{ needs.validate-inputs.outputs.environment }}-${{ needs.validate-inputs.outputs.frontend-branch }} \
+            --build-arg NODE_ENV=${{ needs.validate-inputs.outputs.environment }} \
+            .
+
+      - name: 匯出前端建置成品（從映像複製 .next）
+        working-directory: HealthRecord-FE
+        run: |
+          echo "📦 匯出前端 .next 成品..."
+          mkdir -p .next
+          CID=$(docker create healthrecord-frontend:${{ needs.validate-inputs.outputs.environment }}-${{ needs.validate-inputs.outputs.frontend-branch }})
+          docker cp "$CID":/app/.next ./.next || (echo "❌ 找不到 /app/.next，請確認 Dockerfile 是否有輸出 .next" && exit 1)
+          docker rm "$CID"
+          echo "📂 列出 HealthRecord-FE 目錄內容："
+          ls -la
+          echo "📂 列出 .next 目錄內容："
+          ls -la .next || true
+          echo "📄 範例列出 .next 前 50 個檔案："
+          find .next -type f | head -50 || true
+
+      - name: 上傳前端建置成品
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-build-${{ needs.validate-inputs.outputs.environment }}-${{ needs.validate-inputs.outputs.frontend-branch }}
+          path: |
+            HealthRecord-FE/.next/**
+            HealthRecord-FE/public/**
+            HealthRecord-FE/package.json
+          if-no-files-found: error
+          retention-days: 1
+
+  deploy-to-zeabur:
+    name: 🚀 部署到 Zeabur
+    runs-on: ubuntu-latest
+    needs: [validate-inputs, checkout-code, run-tests, build-backend, build-frontend]
+    if: always() && (needs.run-tests.result == 'success' || needs.validate-inputs.outputs.force-deploy == 'true')
+    steps:
+      - name: 檢出程式碼（用於部署配置）
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate-inputs.outputs.backend-branch }}
+          submodules: recursive
+
+      - name: 下載後端建置成品
+        if: needs.build-backend.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-build-${{ needs.validate-inputs.outputs.environment }}-${{ needs.validate-inputs.outputs.backend-branch }}
+          path: ./backend-build
+
+      - name: 下載前端建置成品
+        if: needs.build-frontend.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-build-${{ needs.validate-inputs.outputs.environment }}-${{ needs.validate-inputs.outputs.frontend-branch }}
+          path: ./frontend-build
+
+      - name: 安裝 Zeabur CLI
+        run: |
+          set -euo pipefail
+          echo "📥 安裝 Zeabur CLI..."
+          curl -fsSL https://zeabur.com/cli/install.sh | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH || true
+          echo "$HOME/.zeabur/bin" >> $GITHUB_PATH || true
+          echo "/usr/local/bin" >> $GITHUB_PATH || true
+          echo "PATH after update: $PATH"
+          ls -la "$HOME/.local/bin" || true
+          ls -la "$HOME/.zeabur/bin" || true
+          which zeabur || true
+          if command -v zeabur >/dev/null 2>&1; then
+            zeabur --version || true
+          else
+            echo "⚠️  zeabur 尚未在 PATH，將嘗試使用完整路徑執行";
+            if [ -x "$HOME/.local/bin/zeabur" ]; then "$HOME/.local/bin/zeabur" --version || true; fi
+            if [ -x "$HOME/.zeabur/bin/zeabur" ]; then "$HOME/.zeabur/bin/zeabur" --version || true; fi
+          fi
+
+      - name: 設定 Zeabur 認證
+        run: |
+          set -euo pipefail
+          if command -v zeabur >/dev/null 2>&1; then
+            echo "$ZEABUR_TOKEN" | zeabur login
+          elif [ -x "$HOME/.local/bin/zeabur" ]; then
+            echo "$ZEABUR_TOKEN" | "$HOME/.local/bin/zeabur" login
+          elif [ -x "$HOME/.zeabur/bin/zeabur" ]; then
+            echo "$ZEABUR_TOKEN" | "$HOME/.zeabur/bin/zeabur" login
+          else
+            echo "❌ 找不到 zeabur CLI，請檢查前一步是否安裝成功" >&2
+            exit 127
+          fi
+
+      - name: 準備部署檔案
+        run: |
+          echo "📁 準備部署檔案..."
+          mkdir -p deploy
+
+          echo "📂 列出工作目錄內容"
+          ls -la
+          echo "📂 後端建置目錄：backend-build"
+          ls -la ./backend-build || true
+          echo "📂 前端建置目錄：frontend-build"
+          ls -la ./frontend-build || true
+          
+          # 複製後端建置成品
+          if [ -d "./backend-build" ]; then
+            cp -r ./backend-build/* deploy/
+            echo "✅ 後端建置成品已複製"
+          fi
+          
+          # 複製前端建置成品
+          if [ -d "./frontend-build" ]; then
+            cp -r ./frontend-build/* deploy/
+            echo "✅ 前端建置成品已複製"
+          fi
+          
+          # 複製必要的配置檔案
+          if [ -f "HealthRecord/package.json" ]; then
+            cp HealthRecord/package.json deploy/
+            echo "✅ package.json 已複製"
+          fi
+          
+          if [ -f "HealthRecord-FE/package.json" ]; then
+            cp HealthRecord-FE/package.json deploy/
+            echo "✅ 前端 package.json 已複製"
+          fi
+
+      - name: 部署到 Zeabur
+        env:
+          ZEABUR_TOKEN: ${{ secrets.ZEABUR_TOKEN }}
+          ZEABUR_PROJECT_ID: ${{ secrets.ZEABUR_PROJECT_ID }}
+        run: |
+          echo "🚀 開始部署到 Zeabur..."
+          echo "📍 環境: ${{ needs.validate-inputs.outputs.environment }}"
+          echo "🏗️ 後端分支: ${{ needs.validate-inputs.outputs.backend-branch }}"
+          echo "🎨 前端分支: ${{ needs.validate-inputs.outputs.frontend-branch }}"
+          
+          # 根據環境設定不同的部署配置
+          case "${{ needs.validate-inputs.outputs.environment }}" in
+            "dev")
+              zeabur deploy --project $ZEABUR_PROJECT_ID --environment development --source ./deploy
+              ;;
+            "stg")
+              zeabur deploy --project $ZEABUR_PROJECT_ID --environment staging --source ./deploy
+              ;;
+            "prod")
+              zeabur deploy --project $ZEABUR_PROJECT_ID --environment production --source ./deploy
+              ;;
+          esac
+
+      - name: 等待部署完成
+        run: |
+          echo "⏳ 等待部署完成..."
+          sleep 30
+
+      - name: 檢查部署狀態
+        run: |
+          echo "🔍 檢查部署狀態..."
+          zeabur status --project $ZEABUR_PROJECT_ID
+
+  notify-deployment:
+    name: 📢 部署通知
+    runs-on: ubuntu-latest
+    needs: [deploy-to-zeabur]
+    if: always()
+    steps:
+      - name: 部署結果通知
+        run: |
+          if [ "${{ needs.deploy-to-zeabur.result }}" == "success" ]; then
+            echo "✅ 部署成功！"
+            echo "🎉 您的應用已成功部署到 Zeabur ${{ needs.deploy-to-zeabur.outputs.environment }} 環境"
+          else
+            echo "❌ 部署失敗"
+            echo "💡 請檢查部署日誌以了解詳細錯誤資訊"
+          fi
+
+      - name: 建立部署摘要
+        run: |
+          echo "## 🚀 Zeabur 部署摘要" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **環境**: ${{ needs.validate-inputs.outputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **後端分支**: ${{ needs.validate-inputs.outputs.backend-branch }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **前端分支**: ${{ needs.validate-inputs.outputs.frontend-branch }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **部署時間**: $(date)" >> $GITHUB_STEP_SUMMARY
+          echo "- **部署狀態**: ${{ needs.deploy-to-zeabur.result }}" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ needs.deploy-to-zeabur.result }}" == "success" ]; then
+            echo "- **結果**: ✅ 成功" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- **結果**: ❌ 失敗" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## 📋 可用分支資訊" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🏗️ 後端專案 (HealthRecord) 可用分支" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          cd HealthRecord && git branch -r | grep -v HEAD | sed 's/origin\///' | sort -u >> $GITHUB_STEP_SUMMARY
+          cd .. >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🎨 前端專案 (HealthRecord-FE) 可用分支" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          cd HealthRecord-FE && git branch -r | grep -v HEAD | sed 's/origin\///' | sort -u >> $GITHUB_STEP_SUMMARY
+          cd .. >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY

@@ -90,6 +90,45 @@ A modern, full-stack health record management system with Progressive Web App (P
 start-dev.bat
 ```
 
+## 🚀 Deployment with GitFlow
+
+This project includes a complete GitFlow workflow for automated deployment to Zeabur without requiring Docker Hub:
+
+### Quick Deployment
+```bash
+# Setup GitFlow branches
+chmod +x scripts/setup-gitflow.sh
+./scripts/setup-gitflow.sh
+
+# Quick deployment script
+chmod +x scripts/quick-deploy.sh
+./scripts/quick-deploy.sh
+```
+
+### Manual Deployment via GitHub Actions
+1. Go to **Actions** tab in your GitHub repository
+2. Select **🚀 Deploy to Zeabur** workflow
+3. Click **Run workflow**
+4. Choose environment (dev/stg/prod) and input backend/frontend branch names
+5. Configure build options and deploy
+
+**🆕 Dynamic Branch Detection**: The workflow automatically detects all available branches in your backend and frontend projects, so you can input any existing branch name without predefined options.
+
+**🔧 Environment Variables**: Runtime environment variables are configured in Zeabur, making deployment more flexible and secure.
+
+### Deployment Process
+- **Build**: Automatically builds both backend and frontend using Docker
+- **Test**: Runs unit tests and E2E tests in Docker containers before deployment
+- **Deploy**: Uploads build artifacts to Zeabur using their CLI
+- **Docker-based**: Uses existing Dockerfiles for consistent build environments
+
+### Supported Environments
+- **dev** (develop branch) - Development environment
+- **stg** (staging branch) - Testing environment  
+- **prod** (main branch) - Production environment
+
+For detailed setup instructions, see [GitFlow Guide](GITFLOW-GUIDE.md) and [GitHub Secrets Setup](docs/SETUP-GITHUB-SECRETS.md).
+
 ## Project Structure
 
 ```
