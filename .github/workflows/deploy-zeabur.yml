@@ -39,7 +39,7 @@ on:
         type: boolean
 
 env:
-  ZEABUR_TOKEN: ${{ secrets.ZEABUR_TOKEN }}
+  ZEABUR_API_TOKEN: ${{ secrets.ZEABUR_API_TOKEN }}
   ZEABUR_PROJECT_ID: ${{ secrets.ZEABUR_PROJECT_ID }}
   NODE_ENV: ${{ github.event.inputs.environment }}
 
@@ -335,55 +335,28 @@ jobs:
           name: frontend-build-${{ needs.validate-inputs.outputs.environment }}-${{ needs.validate-inputs.outputs.frontend-branch }}
           path: ./frontend-build
 
-      - name: 安裝 Zeabur CLI
+      - name: 測試 Zeabur GraphQL API 連線
         run: |
-          set -euo pipefail
-          echo "📥 安裝 Zeabur CLI..."
-          # Try multiple installation methods
-          if ! curl -fsSL https://zeabur.com/install.sh | sh; then
-            echo "First method failed, trying alternative..."
-            if ! curl -fsSL https://get.zeabur.sh | sh; then
-              echo "Second method failed, trying npm..."
-              npm install -g @zeabur/cli || true
-            fi
+          echo "🔗 測試 Zeabur GraphQL API 連線..."
+          
+          # Test API connection
+          RESPONSE=$(curl -s -w "%{http_code}" -X POST https://api.zeabur.com/graphql \
+            -H "Authorization: Bearer $ZEABUR_API_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data '{"query":"query { me { username } }"}')
+          
+          HTTP_CODE="${RESPONSE: -3}"
+          BODY="${RESPONSE%???}"
+          
+          echo "HTTP Status: $HTTP_CODE"
+          echo "Response: $BODY"
+          
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "❌ API 連線失敗，HTTP 狀態碼：$HTTP_CODE"
+            exit 1
           fi
           
-          # Add multiple possible paths
-          echo "$HOME/.local/bin" >> $GITHUB_PATH || true
-          echo "$HOME/.zeabur/bin" >> $GITHUB_PATH || true
-          echo "/usr/local/bin" >> $GITHUB_PATH || true
-          echo "/usr/bin" >> $GITHUB_PATH || true
-          
-          # Debug path and check installation
-          echo "PATH after update: $PATH"
-          ls -la "$HOME/.local/bin" 2>/dev/null || echo "No ~/.local/bin"
-          ls -la "$HOME/.zeabur/bin" 2>/dev/null || echo "No ~/.zeabur/bin"
-          
-          # Test zeabur command
-          export PATH="$HOME/.local/bin:$HOME/.zeabur/bin:/usr/local/bin:$PATH"
-          ls -la "$HOME/.zeabur/bin" || true
-          which zeabur || true
-          if command -v zeabur >/dev/null 2>&1; then
-            zeabur --version || true
-          else
-            echo "⚠️  zeabur 尚未在 PATH，將嘗試使用完整路徑執行";
-            if [ -x "$HOME/.local/bin/zeabur" ]; then "$HOME/.local/bin/zeabur" --version || true; fi
-            if [ -x "$HOME/.zeabur/bin/zeabur" ]; then "$HOME/.zeabur/bin/zeabur" --version || true; fi
-          fi
-
-      - name: 設定 Zeabur 認證
-        run: |
-          set -euo pipefail
-          if command -v zeabur >/dev/null 2>&1; then
-            echo "$ZEABUR_TOKEN" | zeabur login
-          elif [ -x "$HOME/.local/bin/zeabur" ]; then
-            echo "$ZEABUR_TOKEN" | "$HOME/.local/bin/zeabur" login
-          elif [ -x "$HOME/.zeabur/bin/zeabur" ]; then
-            echo "$ZEABUR_TOKEN" | "$HOME/.zeabur/bin/zeabur" login
-          else
-            echo "❌ 找不到 zeabur CLI，請檢查前一步是否安裝成功" >&2
-            exit 127
-          fi
+          echo "✅ Zeabur GraphQL API 連線成功"
 
       - name: 準備部署檔案
         run: |
@@ -421,27 +394,45 @@ jobs:
           fi
 
       - name: 部署到 Zeabur
-        env:
-          ZEABUR_TOKEN: ${{ secrets.ZEABUR_TOKEN }}
-          ZEABUR_PROJECT_ID: ${{ secrets.ZEABUR_PROJECT_ID }}
         run: |
           echo "🚀 開始部署到 Zeabur..."
           echo "📍 環境: ${{ needs.validate-inputs.outputs.environment }}"
           echo "🏗️ 後端分支: ${{ needs.validate-inputs.outputs.backend-branch }}"
           echo "🎨 前端分支: ${{ needs.validate-inputs.outputs.frontend-branch }}"
+          echo "🆔 專案 ID: $ZEABUR_PROJECT_ID"
           
-          # 根據環境設定不同的部署配置
-          case "${{ needs.validate-inputs.outputs.environment }}" in
-            "dev")
-              zeabur deploy --project $ZEABUR_PROJECT_ID --environment development --source ./deploy
-              ;;
-            "stg")
-              zeabur deploy --project $ZEABUR_PROJECT_ID --environment staging --source ./deploy
-              ;;
-            "prod")
-              zeabur deploy --project $ZEABUR_PROJECT_ID --environment production --source ./deploy
-              ;;
-          esac
+          # 使用 GraphQL API 觸發重新部署
+          # 注意：這裡使用 redeployService mutation，請根據實際的服務 ID 調整
+          echo "🔄 觸發重新部署..."
+          
+          DEPLOY_RESPONSE=$(curl -s -w "%{http_code}" -X POST https://gateway.zeabur.com/graphql \
+            -H "Authorization: Bearer $ZEABUR_API_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data "{
+              \"query\": \"mutation { redeployService(serviceID: \\\"$ZEABUR_PROJECT_ID\\\") { id } }\"
+            }")
+          
+          HTTP_CODE="${DEPLOY_RESPONSE: -3}"
+          BODY="${DEPLOY_RESPONSE%???}"
+          
+          echo "📊 部署 API 回應："
+          echo "HTTP 狀態碼：$HTTP_CODE"
+          echo "回應內容：$BODY"
+          
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "❌ 部署 API 調用失敗，HTTP 狀態碼：$HTTP_CODE"
+            echo "錯誤詳情：$BODY"
+            exit 1
+          fi
+          
+          # 檢查 GraphQL 錯誤
+          if echo "$BODY" | grep -q '"errors"'; then
+            echo "❌ GraphQL 錯誤："
+            echo "$BODY" | jq '.errors' 2>/dev/null || echo "$BODY"
+            exit 1
+          fi
+          
+          echo "✅ 部署請求已成功發送！"
 
       - name: 等待部署完成
         run: |

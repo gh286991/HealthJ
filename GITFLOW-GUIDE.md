@@ -124,7 +124,9 @@ git branch -d hotfix/緊急修復
 - `hotfix/mobile-layout` - 熱修復分支
 - `release/v1.2.0` - 發布分支
 
-**詳細說明請參考**: [動態分支偵測功能](docs/DYNAMIC-BRANCH-DETECTION.md)
+**詳細說明請參考**: 
+- [動態分支偵測功能](docs/DYNAMIC-BRANCH-DETECTION.md)
+- [Docker 建置部署說明](docs/DOCKER-BUILD-DEPLOYMENT.md)
 
 ### 環境對應關係
 
@@ -144,7 +146,20 @@ git branch -d hotfix/緊急修復
 
 1. **`ZEABUR_TOKEN`** - Zeabur API Token
 2. **`ZEABUR_PROJECT_ID`** - Zeabur 專案 ID
-3. **`NEXT_PUBLIC_API_URL`** - 前端 API 基礎 URL
+
+### 環境變數設定
+
+**環境變數在 Zeabur 中設定**，這樣更靈活也更安全：
+
+- **`NEXT_PUBLIC_API_URL`** - 前端 API 基礎 URL
+- **`NEXT_PUBLIC_ENVIRONMENT`** - 環境名稱
+- **`NODE_ENV`** - Node.js 環境
+- 其他應用程式特定的環境變數
+
+**設定方式**：
+1. 在 Zeabur 專案頁面
+2. 前往 **Environment Variables** 設定
+3. 為每個環境（dev/stg/prod）設定對應的變數值
 
 ### 設定步驟
 
