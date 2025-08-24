@@ -402,37 +402,93 @@ jobs:
           echo "🆔 專案 ID: $ZEABUR_PROJECT_ID"
           
           # 使用 GraphQL API 觸發重新部署
-          # 注意：這裡使用 redeployService mutation，請根據實際的服務 ID 調整
           echo "🔄 觸發重新部署..."
+          echo "🆔 使用 ID: $ZEABUR_PROJECT_ID"
           
-          DEPLOY_RESPONSE=$(curl -s -w "%{http_code}" -X POST https://gateway.zeabur.com/graphql \
-            -H "Authorization: Bearer $ZEABUR_API_TOKEN" \
-            -H "Content-Type: application/json" \
-            --data "{
-              \"query\": \"mutation { redeployService(serviceID: \\\"$ZEABUR_PROJECT_ID\\\") { id } }\"
-            }")
+          # 嘗試多種可能的 mutation 語法
+          echo "🔍 方法 1: 嘗試 redeployService mutation..."
+          RESPONSE1=$(curl -s -w "\n%{http_code}" --connect-timeout 30 --max-time 60 \
+            --request POST \
+            --url https://gateway.zeabur.com/graphql \
+            --header "Authorization: Bearer $ZEABUR_API_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data "{\"query\": \"mutation { redeployService(serviceId: \\\"$ZEABUR_PROJECT_ID\\\") { id } }\"}" 2>&1)
           
-          HTTP_CODE="${DEPLOY_RESPONSE: -3}"
-          BODY="${DEPLOY_RESPONSE%???}"
+          HTTP_CODE1=$(echo "$RESPONSE1" | tail -n1)
+          BODY1=$(echo "$RESPONSE1" | head -n -1)
           
-          echo "📊 部署 API 回應："
-          echo "HTTP 狀態碼：$HTTP_CODE"
-          echo "回應內容：$BODY"
+          echo "📊 方法 1 回應："
+          echo "HTTP 狀態碼：$HTTP_CODE1"
+          echo "回應內容：$BODY1"
           
-          if [ "$HTTP_CODE" != "200" ]; then
-            echo "❌ 部署 API 調用失敗，HTTP 狀態碼：$HTTP_CODE"
-            echo "錯誤詳情：$BODY"
+          SUCCESS=false
+          
+          if [ "$HTTP_CODE1" = "200" ] && ! echo "$BODY1" | grep -q '"errors"'; then
+            echo "✅ 方法 1 成功！"
+            SUCCESS=true
+          else
+            echo "❌ 方法 1 失敗，嘗試方法 2..."
+            
+            # 嘗試使用 serviceID 參數
+            RESPONSE2=$(curl -s -w "\n%{http_code}" --connect-timeout 30 --max-time 60 \
+              --request POST \
+              --url https://gateway.zeabur.com/graphql \
+              --header "Authorization: Bearer $ZEABUR_API_TOKEN" \
+              --header "Content-Type: application/json" \
+              --data "{\"query\": \"mutation { redeployService(serviceID: \\\"$ZEABUR_PROJECT_ID\\\") { id } }\"}" 2>&1)
+            
+            HTTP_CODE2=$(echo "$RESPONSE2" | tail -n1)
+            BODY2=$(echo "$RESPONSE2" | head -n -1)
+            
+            echo "📊 方法 2 回應："
+            echo "HTTP 狀態碼：$HTTP_CODE2"
+            echo "回應內容：$BODY2"
+            
+            if [ "$HTTP_CODE2" = "200" ] && ! echo "$BODY2" | grep -q '"errors"'; then
+              echo "✅ 方法 2 成功！"
+              SUCCESS=true
+            else
+              echo "❌ 方法 2 失敗，嘗試方法 3..."
+              
+              # 嘗試使用 triggerDeploy 或其他可能的 mutation
+              RESPONSE3=$(curl -s -w "\n%{http_code}" --connect-timeout 30 --max-time 60 \
+                --request POST \
+                --url https://gateway.zeabur.com/graphql \
+                --header "Authorization: Bearer $ZEABUR_API_TOKEN" \
+                --header "Content-Type: application/json" \
+                --data "{\"query\": \"mutation { deployService(serviceId: \\\"$ZEABUR_PROJECT_ID\\\") { id } }\"}" 2>&1)
+              
+              HTTP_CODE3=$(echo "$RESPONSE3" | tail -n1)
+              BODY3=$(echo "$RESPONSE3" | head -n -1)
+              
+              echo "📊 方法 3 回應："
+              echo "HTTP 狀態碼：$HTTP_CODE3"
+              echo "回應內容：$BODY3"
+              
+              if [ "$HTTP_CODE3" = "200" ] && ! echo "$BODY3" | grep -q '"errors"'; then
+                echo "✅ 方法 3 成功！"
+                SUCCESS=true
+              fi
+            fi
+          fi
+          
+          if [ "$SUCCESS" = "false" ]; then
+            echo ""
+            echo "❌ 所有部署方法都失敗了"
+            echo "🔍 錯誤摘要："
+            echo "   方法 1 (redeployService + serviceId): $HTTP_CODE1 - $BODY1"
+            echo "   方法 2 (redeployService + serviceID): $HTTP_CODE2 - $BODY2"
+            echo "   方法 3 (deployService + serviceId): $HTTP_CODE3 - $BODY3"
+            echo ""
+            echo "💡 可能的解決方案："
+            echo "   1. 檢查 ZEABUR_PROJECT_ID 是否為正確的服務 ID"
+            echo "   2. 確認 API Token 具有部署權限"
+            echo "   3. 查看 Zeabur Dashboard 中的正確服務 ID"
+            echo "   4. 聯繫 Zeabur 支援確認正確的 GraphQL mutation"
             exit 1
           fi
           
-          # 檢查 GraphQL 錯誤
-          if echo "$BODY" | grep -q '"errors"'; then
-            echo "❌ GraphQL 錯誤："
-            echo "$BODY" | jq '.errors' 2>/dev/null || echo "$BODY"
-            exit 1
-          fi
-          
-          echo "✅ 部署請求已成功發送！"
+          echo "🎉 部署請求已成功發送！"
 
       - name: 等待部署完成
         run: |
