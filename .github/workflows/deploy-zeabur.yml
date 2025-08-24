@@ -339,12 +339,28 @@ jobs:
         run: |
           set -euo pipefail
           echo "📥 安裝 Zeabur CLI..."
-          curl -fsSL https://zeabur.com/cli/install.sh | sh
+          # Try multiple installation methods
+          if ! curl -fsSL https://zeabur.com/install.sh | sh; then
+            echo "First method failed, trying alternative..."
+            if ! curl -fsSL https://get.zeabur.sh | sh; then
+              echo "Second method failed, trying npm..."
+              npm install -g @zeabur/cli || true
+            fi
+          fi
+          
+          # Add multiple possible paths
           echo "$HOME/.local/bin" >> $GITHUB_PATH || true
           echo "$HOME/.zeabur/bin" >> $GITHUB_PATH || true
           echo "/usr/local/bin" >> $GITHUB_PATH || true
+          echo "/usr/bin" >> $GITHUB_PATH || true
+          
+          # Debug path and check installation
           echo "PATH after update: $PATH"
-          ls -la "$HOME/.local/bin" || true
+          ls -la "$HOME/.local/bin" 2>/dev/null || echo "No ~/.local/bin"
+          ls -la "$HOME/.zeabur/bin" 2>/dev/null || echo "No ~/.zeabur/bin"
+          
+          # Test zeabur command
+          export PATH="$HOME/.local/bin:$HOME/.zeabur/bin:/usr/local/bin:$PATH"
           ls -la "$HOME/.zeabur/bin" || true
           which zeabur || true
           if command -v zeabur >/dev/null 2>&1; then
