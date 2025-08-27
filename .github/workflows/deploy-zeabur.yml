@@ -447,6 +447,11 @@ jobs:
 
           echo "🎉 部署請求已成功發送！"
 
+      - name: 設定 Node.js 環境
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
       - name: 等待部署完成
         run: |
           echo "⏳ 等待部署完成..."
@@ -455,7 +460,9 @@ jobs:
       - name: 檢查部署狀態
         run: |
           echo "🔍 檢查部署狀態..."
-          zeabur status --project $ZEABUR_PROJECT_ID
+          export ZEABUR_TOKEN=${{ env.ZEABUR_TOKEN }}
+          npx zeabur auth login --token $ZEABUR_TOKEN
+          npx zeabur project list
 
   notify-deployment:
     name: 📢 部署通知
