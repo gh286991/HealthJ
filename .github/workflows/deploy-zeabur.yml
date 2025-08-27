@@ -409,43 +409,34 @@ jobs:
 
           ENV_NAME="${{ needs.validate-inputs.outputs.environment }}"
 
-          # 構建 YAML 內容（用 printf 避免 heredoc 導致 YAML 縮排問題）
-          DEPLOY_CONFIG=$(printf '%s\n' \
-            "services:" \
-            "  - name: health-app" \
-            "    source:" \
-            "      type: local" \
-            "      path: ." \
-            "    environment: __ENV__" \
-          )
-
-          # 注入環境值
-          DEPLOY_CONFIG="${DEPLOY_CONFIG/__ENV__/$ENV_NAME}"
-
-          # 以 jq 構造 JSON 請求，避免換行轉義問題
-          PAYLOAD=$(jq -nc --arg rawSpecYaml "$DEPLOY_CONFIG" --arg projectId "$ZEABUR_PROJECT_ID" '{query:"mutation DeployTemplate($rawSpecYaml: String!, $projectId: ObjectID!) { deployTemplate(rawSpecYaml: $rawSpecYaml, projectID: $projectId) { _id } }", variables:{rawSpecYaml:$rawSpecYaml, projectId:$projectId}}')
-
-          RESPONSE=$(curl -s -w "\n%{http_code}" --connect-timeout 30 --max-time 60 \
-            --request POST \
-            --url https://api.zeabur.com/graphql \
-            --header "Authorization: Bearer $ZEABUR_TOKEN" \
-            --header "Content-Type: application/json" \
-            --data "$PAYLOAD" 2>&1)
-
-          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
-          BODY=$(echo "$RESPONSE" | head -n -1)
-
-          echo "📊 deployTemplate 回應："
-          echo "HTTP 狀態碼：$HTTP_CODE"
-          echo "回應內容：$BODY"
-
-          if [ "$HTTP_CODE" != "200" ] || echo "$BODY" | grep -q '"errors"'; then
-            echo "❌ deployTemplate 失敗"
-            echo "💡 請確認 ZEABUR_PROJECT_ID、Token 權限與環境名稱是否有效（需與 Zeabur 專案相符）"
+          # 使用 Zeabur CLI 直接上傳建置好的檔案
+          echo "🚀 使用 Zeabur CLI 部署建置好的檔案..."
+          export ZEABUR_TOKEN=${{ env.ZEABUR_TOKEN }}
+          npx zeabur auth login --token $ZEABUR_TOKEN
+          
+          # 部署後端
+          if [ -d "./backend-build" ]; then
+            echo "📦 部署後端檔案..."
+            cd ./backend-build
+            npx zeabur deploy --project-id $ZEABUR_PROJECT_ID --service-name backend --type nodejs
+            cd ..
+          fi
+          
+          # 部署前端
+          if [ -d "./frontend-build" ]; then
+            echo "🎨 部署前端檔案..."
+            cd ./frontend-build
+            npx zeabur deploy --project-id $ZEABUR_PROJECT_ID --service-name frontend --type static
+            cd ..
+          fi
+          
+          if [ $? -eq 0 ]; then
+            echo "🎉 部署成功！"
+          else
+            echo "❌ 部署失敗"
+            echo "💡 請確認 ZEABUR_PROJECT_ID、Token 權限與模板格式是否正確"
             exit 1
           fi
-
-          echo "🎉 部署請求已成功發送！"
 
       - name: 設定 Node.js 環境
         uses: actions/setup-node@v4
